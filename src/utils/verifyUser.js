@@ -4,15 +4,18 @@ const User = require("../models/User");
 module.exports = (req, res, next) => {
   try {
     const token = req.cookies.token;
-    if (!token) throw Error("No token found");
+    if (!token) return res.status(401).send("Unauthorized");
 
     const { _id, role } = jwt.verify(token, process.env.ACCESS_TOKEN_SEC);
 
     const user = User.findById(_id);
-    if (!user) throw Error("User does not exist");
+    if (!user) return res.status(401).send("Unauthorized");
 
     if (!role)
-      throw Error("You are not authorized to access this resource");
+      res.status(401).json({
+        success: false,
+        message: "Unauthorized",
+      });
 
     req.reqUser = { _id, role };
 
