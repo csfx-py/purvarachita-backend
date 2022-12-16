@@ -4,11 +4,15 @@ const PORT = process.env.PORT || 5000;
 
 const express = require("express");
 const app = express();
+
 const cors = require("cors");
-const morgan = require("morgan");
-const mongoose = require("mongoose");
 const cookieParser = require("cookie-parser");
 
+const morgan = require("morgan");
+
+const mongoose = require("mongoose");
+
+const adminRoutes = require("./routes/Admin");
 const authRoute = require("./routes/Auth");
 const postsRoute = require("./routes/Posts");
 const userRoute = require("./routes/User");
@@ -49,6 +53,7 @@ app.get("/", (req, res) => {
   res.send("Hello");
 });
 
+app.use("/admin", adminRoutes);
 app.use("/auth", authRoute);
 app.use("/user", userRoute);
 app.use("/posts", postsRoute);
