@@ -21,66 +21,18 @@ const Post = require("../models/Post");
 // get all posts
 router.get("/get-all-posts", verifyUser, async (req, res) => {
   try {
-    const posts = await Post.find({}).sort({ createdAt: -1 });
-    if (!posts.length) throw new Error("No posts found");
+    const followingTags = JSON.parse(req.query.followingTags);
+    if (!followingTags) throw Error("No tags found");
 
-    const userIdNameAvatar = {};
-    // add username to each post
-    const postsWithUser = await Promise.all(
-      posts.map(async (post) => {
-        // comments find username and avatar
-        const commentsWithUser = await Promise.all(
-          post.comments.map(async (comment) => {
-            if (userIdNameAvatar[comment.user]) {
-              return {
-                ...comment._doc,
-                name: userIdNameAvatar[comment.user].name,
-                avatar: userIdNameAvatar[comment.user].avatar,
-              };
-            } else {
-              const user = await User.findById(comment.user);
-              if (!user) throw new Error("User not found");
-
-              userIdNameAvatar[comment.user] = {
-                name: user.name,
-                avatar: user.avatar,
-              };
-            }
-            return {
-              ...comment._doc,
-              name: userIdNameAvatar[comment.user].name,
-              avatar: userIdNameAvatar[comment.user].avatar,
-            };
-          })
-        );
-
-        if (userIdNameAvatar[post.user]) {
-          return {
-            ...post._doc,
-            name: userIdNameAvatar[post.user].name,
-            avatar: userIdNameAvatar[post.user].avatar,
-            comments: commentsWithUser,
-          };
-        }
-        const user = await User.findById(post.user);
-        if (!user) throw new Error("User not found");
-
-        userIdNameAvatar[post.user] = {
-          name: user.name,
-          avatar: user.avatar,
-        };
-        return {
-          ...post._doc,
-          name: userIdNameAvatar[post.user].name,
-          avatar: userIdNameAvatar[post.user].avatar,
-          comments: commentsWithUser,
-        };
-      })
-    );
+    const posts = await Post.find()
+      .sort({ createdAt: -1 })
+      .populate("user", ["name", "avatar"])
+      .populate("comments.user", ["name", "avatar"])
+      .populate("likes", ["name", "avatar"]);
 
     res.status(200).json({
       success: true,
-      posts: postsWithUser,
+      posts,
     });
   } catch (err) {
     console.log(err);
@@ -96,6 +48,17 @@ router.post("/create", verifyUser, upload.array("files"), async (req, res) => {
   try {
     const { description, user } = req.body;
     const files = req.files;
+
+    // check if files has only image and pdf
+    const isImageOrPdfOrJson = files.every((file) => {
+      // check mime type
+      const isImage = file.mimetype.startsWith("image/");
+      const isPdf = file.mimetype === "application/pdf";
+      const isJson = file.mimetype === "application/json";
+      return isImage || isPdf || isJson;
+    });
+    if (!isImageOrPdfOrJson)
+      throw new Error("Only image and pdf files are allowed");
 
     const userDoc = await User.findById(user);
     if (!userDoc) throw new Error("User not found");
@@ -127,12 +90,6 @@ router.post("/create", verifyUser, upload.array("files"), async (req, res) => {
     const savedPost = await post.save();
     if (!savedPost) throw new Error("Something went wrong saving the post");
 
-    // add the post to the user's posts
-    userDoc.posts.push(savedPost._id);
-    const savedUser = await userDoc.save();
-    if (!savedUser)
-      throw new Error("Something went wrong saving post to the user");
-
     res.status(200).json({
       success: true,
       message: "Post created successfully",
@@ -146,6 +103,7 @@ router.post("/create", verifyUser, upload.array("files"), async (req, res) => {
   }
 });
 
+// delete a post
 router.delete("/delete", verifyUser, async (req, res) => {
   try {
     const { postId } = req.body;
@@ -169,16 +127,6 @@ router.delete("/delete", verifyUser, async (req, res) => {
     const deletedPost = await Post.deleteOne({ _id: postId });
     if (!deletedPost) throw new Error("Something went wrong deleting the post");
 
-    // delete the post from the user's posts
-    const user = await User.findById(post.user);
-    if (!user) throw new Error("User not found");
-
-    user.posts = user.posts.filter((post) => post.toString() !== postId);
-
-    const savedUser = await user.save();
-    if (!savedUser)
-      throw new Error("Something went wrong deleting post from the user");
-
     res.status(200).json({
       success: true,
       message: "Post deleted successfully",
@@ -195,7 +143,7 @@ router.delete("/delete", verifyUser, async (req, res) => {
 // route to add comment
 router.post("/add-comment", verifyUser, async (req, res) => {
   try {
-    const { postId, text, user, date } = req.body;
+    const { postId, text, user, name, avatar, date } = req.body;
 
     const post = await Post.findById(postId);
     if (!post) throw new Error("Post not found");
@@ -214,6 +162,135 @@ router.post("/add-comment", verifyUser, async (req, res) => {
     res.status(200).json({
       success: true,
       message: "Comment added successfully",
+    });
+  } catch (err) {
+    console.log(err);
+    res.status(400).json({
+      success: false,
+      message: err.message,
+    });
+  }
+});
+
+// route to delete comment
+router.delete("/delete-comment", verifyUser, async (req, res) => {
+  try {
+    const { postId, commentId } = req.body;
+
+    const post = await Post.findById(postId);
+    if (!post) throw new Error("Post not found");
+
+    post.comments = post.comments.filter(
+      (comment) => comment._id.toString() !== commentId
+    );
+
+    const savedPost = await post.save();
+    if (!savedPost) throw new Error("Something went wrong saving the post");
+
+    res.status(200).json({
+      success: true,
+      message: "Comment deleted successfully",
+    });
+  } catch (err) {
+    console.log(err);
+    res.status(400).json({
+      success: false,
+      message: err.message,
+    });
+  }
+});
+
+// search posts
+router.get("/search", verifyUser, async (req, res) => {
+  try {
+    const { query } = req.query;
+
+    const posts = await Post.find({
+      tags: { $regex: query, $options: "i" },
+    })
+      .sort({ createdAt: -1 })
+      .populate("user", ["name", "avatar"])
+      .populate("comments.user", ["name", "avatar"])
+      .populate("likes.user", ["name", "avatar"]);
+    if (!posts) throw new Error("Posts not found");
+
+    res.status(200).json({
+      success: true,
+      posts: postsWithUser,
+    });
+  } catch (err) {
+    console.log(err);
+    res.status(400).json({
+      success: false,
+      message: err.message,
+    });
+  }
+});
+
+// get my posts
+router.get("/get-my-posts", verifyUser, async (req, res) => {
+  try {
+    const user = req.reqUser._id;
+
+    const posts = await Post.find({ user })
+      .sort({ createdAt: -1 })
+      .populate("user", ["name", "avatar"])
+      .populate("comments.user", ["name", "avatar"])
+      .populate("likes.user", ["name", "avatar"]);
+    if (!posts) throw new Error("Posts not found");
+
+    res.status(200).json({
+      success: true,
+      posts,
+    });
+  } catch (err) {
+    console.log(err);
+    res.status(400).json({
+      success: false,
+      message: err.message,
+    });
+  }
+});
+
+// get posts of single user
+router.get("/get-user-posts", verifyUser, async (req, res) => {
+  try {
+    const { userId } = req.query;
+
+    const posts = await Post.find({ user: userId })
+      .sort({ createdAt: -1 })
+      .populate("user", ["name", "avatar"])
+      .populate("comments.user", ["name", "avatar"])
+      .populate("likes.user", ["name", "avatar"]);
+    if (!posts) throw new Error("Posts not found");
+
+    res.status(200).json({
+      success: true,
+      posts,
+    });
+  } catch (err) {
+    console.log(err);
+    res.status(400).json({
+      success: false,
+      message: err.message,
+    });
+  }
+});
+
+// get single post
+router.get("/get-post", verifyUser, async (req, res) => {
+  try {
+    const { postId } = req.query;
+
+    const post = await Post.findById(postId)
+      .populate("user", ["name", "avatar"])
+      .populate("comments.user", ["name", "avatar"])
+      .populate("likes.user", ["name", "avatar"]);
+    if (!post) throw new Error("Post not found");
+
+    res.status(200).json({
+      success: true,
+      post,
     });
   } catch (err) {
     console.log(err);
