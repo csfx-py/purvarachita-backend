@@ -15,25 +15,18 @@ const upload = multer({
 
 const User = require("../models/User");
 const verifyUser = require("../utils/verifyUser");
+const getUserReturnInfo = require("../utils/getUserReturnInfo");
 
+// user profile
 router.get("/user", verifyUser, async (req, res) => {
   try {
-    const user = await User.findById(req.reqUser._id);
+    const user = await User.findById(req.reqUser._id).populate("followingTags");
     if (!user) throw Error("User does not exist");
-
-    // remove password from response
-    const { _id, name, email, posts, avatar } = user._doc;
 
     res.status(200).json({
       success: true,
-      user: {
-        _id,
-        name,
-        email,
-        posts,
-        avatar,
-      },
-      message: "User fetched successfully",
+      user: getUserReturnInfo(user._doc),
+      message: "User fetch successfully",
     });
   } catch (err) {
     res.status(400).json({
@@ -43,21 +36,20 @@ router.get("/user", verifyUser, async (req, res) => {
   }
 });
 
+// edit avatar
 router.post(
   "/avatar",
   verifyUser,
-  // multer accept only image file
   upload.single("avatar"),
   async (req, res) => {
     try {
       const file = req.file;
       if (!file) throw Error("No file found");
+      // check image type
+      if (file.mimetype !== "image/jpeg" && file.mimetype !== "image/png")
+        throw Error("File type not supported");
 
       const extension = file.originalname.split(".").pop();
-
-      // check if file is image
-      if (!["jpg", "jpeg", "png"].includes(extension))
-        throw Error("File type not supported");
 
       const storageRef = ref(
         storage,
@@ -75,21 +67,13 @@ router.post(
         { _id: req.reqUser._id },
         { avatar: downloadURL },
         { new: true }
-      );
+      ).populate("followingTags");
       if (!user) throw Error("User does not exist");
-
-      const { _id, name, email, posts, avatar } = user._doc;
 
       res.status(200).json({
         success: true,
         message: "Avatar uploaded successfully",
-        user: {
-          _id,
-          name,
-          email,
-          posts,
-          avatar,
-        },
+        user: getUserReturnInfo(user._doc),
       });
     } catch (err) {
       res.status(400).json({
@@ -99,5 +83,36 @@ router.post(
     }
   }
 );
+
+router.put("/user", verifyUser, async (req, res) => {
+  try {
+    const { name, email } = req.body.details;
+
+    // check if email is dup
+    const validEMail = await User.findOne({ email });
+    if (validEMail && validEMail._id != req.reqUser._id) {
+      throw Error("Email already in use by someone else");
+    }
+
+    const user = await User.findOneAndUpdate(
+      { _id: req.reqUser._id },
+      { name, email },
+      { new: true }
+    ).populate("followingTags");
+    if (!user) throw Error("User does not exist");
+
+    res.status(200).json({
+      success: true,
+      message: "User updated successfully",
+      user: getUserReturnInfo(user._doc),
+    });
+  } catch (err) {
+    console.log(err);
+    res.status(400).json({
+      success: false,
+      message: err.message,
+    });
+  }
+});
 
 module.exports = router;
