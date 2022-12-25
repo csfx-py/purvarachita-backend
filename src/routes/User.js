@@ -20,7 +20,7 @@ const getUserReturnInfo = require("../utils/getUserReturnInfo");
 // user profile
 router.get("/user", verifyUser, async (req, res) => {
   try {
-    const user = await User.findById(req.reqUser._id).populate("followingTags");
+    const user = await User.findById(req.reqUser._id);
     if (!user) throw Error("User does not exist");
 
     res.status(200).json({
@@ -67,7 +67,7 @@ router.post(
         { _id: req.reqUser._id },
         { avatar: downloadURL },
         { new: true }
-      ).populate("followingTags");
+      );
       if (!user) throw Error("User does not exist");
 
       res.status(200).json({
@@ -98,7 +98,7 @@ router.put("/user", verifyUser, async (req, res) => {
       { _id: req.reqUser._id },
       { name, email },
       { new: true }
-    ).populate("followingTags");
+    );
     if (!user) throw Error("User does not exist");
 
     res.status(200).json({
