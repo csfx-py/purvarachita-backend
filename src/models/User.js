@@ -21,6 +21,12 @@ const UserSchema = new mongoose.Schema({
       ref: "Post",
     },
   ],
+  paidForPosts: [
+    {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Post",
+    },
+  ],
   avatar: {
     type: String,
     default: "",
@@ -37,6 +43,31 @@ const UserSchema = new mongoose.Schema({
     type: Date,
     default: Date.now,
   },
+});
+
+// deleteOne hook
+UserSchema.pre("deleteOne", async function (next) {
+  try {
+    const Post = require("./Post");
+    const posts = await Post.deleteMany({ user: this._conditions._id });
+
+    next();
+  } catch (err) {
+    next(err);
+  }
+});
+
+UserSchema.pre("deleteMany", async function (next) {
+  try {
+    const Post = require("./Post");
+    const posts = await Post.deleteMany({
+      user: { $in: this._conditions._id },
+    });
+
+    next();
+  } catch (err) {
+    next(err);
+  }
 });
 
 module.exports = mongoose.model("User", UserSchema);
