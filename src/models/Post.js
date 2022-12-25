@@ -2,6 +2,10 @@ const mongoose = require("mongoose");
 
 // Post Schema
 const PostSchema = new mongoose.Schema({
+  title: {
+    type: String,
+    required: true,
+  },
   description: {
     type: String,
     required: true,
@@ -28,14 +32,8 @@ const PostSchema = new mongoose.Schema({
   ],
   likes: [
     {
-      user: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "User",
-      },
-      num: {
-        type: Number,
-        default: 0,
-      },
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
     },
   ],
   comments: [
@@ -48,12 +46,20 @@ const PostSchema = new mongoose.Schema({
         type: String,
         required: true,
       },
-      date: {
+      createdAt: {
         type: Date,
         default: Date.now,
       },
     },
   ],
+  isPaid: {
+    type: Boolean,
+    default: false,
+  },
+  price: {
+    type: Number,
+    default: 0,
+  },
   createdAt: {
     type: Date,
     default: Date.now,
@@ -109,6 +115,5 @@ PostSchema.pre("deleteMany", async function (next) {
     next(err);
   }
 });
-
 
 module.exports = mongoose.model("Post", PostSchema);
