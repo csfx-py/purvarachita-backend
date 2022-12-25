@@ -31,7 +31,7 @@ router.get("/get-all-posts", verifyAdmin, async (req, res) => {
       .sort({ createdAt: -1 })
       .populate("user", ["name", "avatar"])
       .populate("comments.user", ["name", "avatar"])
-      .populate("likes", ["name", "avatar"]);
+      .populate("likes", ["name", "avatar"])
 
     res.status(200).json({
       success: true,

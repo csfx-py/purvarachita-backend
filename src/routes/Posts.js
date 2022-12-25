@@ -8,6 +8,7 @@ const {
   getDownloadURL,
   deleteObject,
 } = require("firebase/storage");
+const stripe = require("stripe")(process.env.STRIPE_KEY);
 
 const storage = getStorage(app);
 const multer = require("multer");
@@ -21,9 +22,6 @@ const Post = require("../models/Post");
 // get all posts
 router.get("/get-all-posts", verifyUser, async (req, res) => {
   try {
-    const followingTags = JSON.parse(req.query.followingTags);
-    if (!followingTags) throw Error("No tags found");
-
     const posts = await Post.find()
       .sort({ createdAt: -1 })
       .populate("user", ["name", "avatar"])
@@ -43,10 +41,85 @@ router.get("/get-all-posts", verifyUser, async (req, res) => {
   }
 });
 
+router.post("/purchase", verifyUser, async (req, res) => {
+  try {
+    const { postId } = req.body;
+
+    const post = await Post.findById(postId);
+    if (!post) throw Error("Post not found");
+
+    const { title, price } = post;
+
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ["card"],
+      line_items: [
+        {
+          price_data: {
+            currency: "inr",
+            product_data: {
+              name: title,
+            },
+            unit_amount: price * 100,
+          },
+          quantity: 1,
+        },
+      ],
+      mode: "payment",
+      success_url: `http://localhost:3000/success/${postId}/{CHECKOUT_SESSION_ID}`,
+      cancel_url: `http://localhost:3000/cancel`,
+    });
+
+    res.status(200).json({
+      success: true,
+      sessionId: session.id,
+      url: session.url,
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      error: err.message,
+    });
+  }
+});
+
+router.post("/verify-payment", verifyUser, async (req, res) => {
+  try {
+    const { sessionId, postId } = req.body;
+    console.log(sessionId, postId);
+
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
+    if (!session) throw Error("Session not found");
+
+    const { payment_status } = session;
+    if (payment_status !== "paid") throw Error("Payment not successful");
+
+    const post = await Post.findById(postId);
+    if (!post) throw Error("Post not found");
+
+    const user = req.reqUser._id;
+    const added = await User.findByIdAndUpdate(user, {
+      $addToSet: {
+        paidForPosts: postId,
+      },
+    });
+    if (!added) throw Error("Something went wrong adding the post to user");
+
+    res.status(200).json({
+      success: true,
+      message: "Payment successful",
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      error: err.message,
+    });
+  }
+});
+
 // Create a post with multiple pdf files
 router.post("/create", verifyUser, upload.array("files"), async (req, res) => {
   try {
-    const { description, user } = req.body;
+    const { title, description, user, isPaid, price } = req.body;
     const files = req.files;
 
     // check if files has only image and pdf
@@ -58,10 +131,26 @@ router.post("/create", verifyUser, upload.array("files"), async (req, res) => {
       return isImage || isPdf || isJson;
     });
     if (!isImageOrPdfOrJson)
-      throw new Error("Only image and pdf files are allowed");
+      throw new Error("Only image, pdf and json files are allowed");
 
     const userDoc = await User.findById(user);
     if (!userDoc) throw new Error("User not found");
+
+    // sort files as images first, pdfs second and json last
+    files.sort((a, b) => {
+      const isImageA = a.mimetype.startsWith("image/");
+      const isImageB = b.mimetype.startsWith("image/");
+      const isPdfA = a.mimetype === "application/pdf";
+      const isPdfB = b.mimetype === "application/pdf";
+      const isJsonA = a.mimetype === "application/json";
+      const isJsonB = b.mimetype === "application/json";
+
+      if (isImageA && isPdfB) return -1;
+      if (isPdfA && isImageB) return 1;
+      if (isPdfA && isJsonB) return -1;
+      if (isJsonA && isPdfB) return 1;
+      return 0;
+    });
 
     // upload files to firebase storage and get the download urls
     const downloadUrls = await Promise.all(
@@ -81,9 +170,12 @@ router.post("/create", verifyUser, upload.array("files"), async (req, res) => {
 
     // create a new post in mongodb
     const post = new Post({
+      title,
       description,
       user,
       files: downloadUrls,
+      isPaid,
+      price,
     });
 
     // save the post
@@ -93,6 +185,7 @@ router.post("/create", verifyUser, upload.array("files"), async (req, res) => {
     res.status(200).json({
       success: true,
       message: "Post created successfully",
+      postId: savedPost._id,
     });
   } catch (err) {
     console.log(err);
@@ -143,7 +236,7 @@ router.delete("/delete", verifyUser, async (req, res) => {
 // route to add comment
 router.post("/add-comment", verifyUser, async (req, res) => {
   try {
-    const { postId, text, user, name, avatar, date } = req.body;
+    const { postId, text, user } = req.body;
 
     const post = await Post.findById(postId);
     if (!post) throw new Error("Post not found");
@@ -151,7 +244,6 @@ router.post("/add-comment", verifyUser, async (req, res) => {
     const newComment = {
       text,
       user,
-      date,
     };
 
     post.comments.unshift(newComment);
@@ -200,13 +292,49 @@ router.delete("/delete-comment", verifyUser, async (req, res) => {
   }
 });
 
+router.patch("/like-or-dislike", verifyUser, async (req, res) => {
+  try {
+    const { postId } = req.body;
+    const userId = req.reqUser._id;
+    console.log(postId, userId);
+
+    // find and update the post
+    const post = await Post.findById(postId);
+    if (!post) throw new Error("Post not found");
+
+    // check if the post is already liked by the user
+    if (post.likes.filter((like) => like.toString() === userId).length > 0) {
+      post.likes = post.likes.filter((like) => like.toString() !== userId);
+    } else {
+      post.likes.unshift(userId);
+    }
+
+    const savedPost = await post.save();
+    if (!savedPost) throw new Error("Something went wrong saving the post");
+
+    res.status(200).json({
+      success: true,
+      message: "Post liked successfully",
+    });
+  } catch (err) {
+    console.log(err);
+    res.status(400).json({
+      success: false,
+      message: err.message,
+    });
+  }
+});
+
 // search posts
 router.get("/search", verifyUser, async (req, res) => {
   try {
     const { query } = req.query;
 
     const posts = await Post.find({
-      tags: { $regex: query, $options: "i" },
+      $or: [
+        { title: { $regex: query, $options: "i" } },
+        { description: { $regex: query, $options: "i" } },
+      ],
     })
       .sort({ createdAt: -1 })
       .populate("user", ["name", "avatar"])
@@ -259,7 +387,7 @@ router.get("/get-user-posts", verifyUser, async (req, res) => {
 
     const posts = await Post.find({ user: userId })
       .sort({ createdAt: -1 })
-      .populate("user", ["name", "avatar"])
+      .populate("user", ["name", "avatar", "email"])
       .populate("comments.user", ["name", "avatar"])
       .populate("likes.user", ["name", "avatar"]);
     if (!posts) throw new Error("Posts not found");
@@ -267,6 +395,7 @@ router.get("/get-user-posts", verifyUser, async (req, res) => {
     res.status(200).json({
       success: true,
       posts,
+      user: { ...posts[0].user._doc, numPosts: posts.length },
     });
   } catch (err) {
     console.log(err);
