@@ -296,7 +296,6 @@ router.patch("/like-or-dislike", verifyUser, async (req, res) => {
   try {
     const { postId } = req.body;
     const userId = req.reqUser._id;
-    console.log(postId, userId);
 
     // find and update the post
     const post = await Post.findById(postId);
