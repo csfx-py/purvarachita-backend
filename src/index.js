@@ -19,17 +19,10 @@ const postsRoute = require("./routes/Posts");
 const userRoute = require("./routes/User");
 
 app.use(
-  cors(
-    dev
-      ? {
-          origin: ["http://localhost:3000"],
-          credentials: true,
-        }
-      : {
-          origin: "https://www.example.com",
-          credentials: true,
-        }
-  )
+  cors({
+    origin: "http://localhost:3000",
+    credentials: true,
+  })
 );
 app.use(morgan("dev"));
 app.use(express.json());
