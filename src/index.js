@@ -1,7 +1,5 @@
 require("dotenv").config();
-const dev = process.env.NODE_ENV !== "production";
-
-const PORT = dev ? process.env.PORT || 5000 : process.env.PORT_PROD || 5000;
+const PORT = process.env.PORT || 5000;
 
 const express = require("express");
 const app = express();
@@ -30,7 +28,7 @@ app.use(cookieParser());
 
 // connect mongodb
 mongoose.connect(
-  dev ? process.env.MONGO_LOCAL : process.env.MONGO_URI,
+  process.env.MONGO_LOCAL,
   {
     useNewUrlParser: true,
     useUnifiedTopology: true,
