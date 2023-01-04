@@ -3,8 +3,33 @@ const bcrypt = require("bcrypt");
 const createToken = require("../utils/createToken");
 const jwt = require("jsonwebtoken");
 const verifyUser = require("../utils/verifyUser");
+const nodemailer = require("nodemailer");
 
 const User = require("../models/User");
+
+async function sendEmail(email, subject, message) {
+  const transporter = nodemailer.createTransport({
+    service: "Gmail",
+    auth: {
+      user: process.env.MAIL_ADDRESS,
+      pass: process.env.MAIL_PASSWORD,
+    },
+  });
+
+  console.log(transporter);
+
+  const mailOptions = {
+    from: process.env.MAIL_ADDRESS,
+    to: email,
+    subject,
+    text: message,
+  };
+  console.log("mail created");
+
+  const info = await transporter.sendMail(mailOptions);
+  console.log(info);
+  console.log("Email sent: " + info.response);
+}
 
 // Register
 router.post("/register", async (req, res) => {
@@ -167,6 +192,39 @@ router.put("/password", verifyUser, async (req, res) => {
     res.status(200).json({
       success: true,
       message: "Password updated successfully",
+    });
+  } catch (err) {
+    res.status(400).json({
+      success: false,
+      message: err.message,
+    });
+  }
+});
+
+router.post("/otp", async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    console.log(email);
+
+    // create otp and send it to the user
+    const otp = Math.floor(100000 + Math.random() * 900000);
+    const message = `Your OTP is ${otp}. Please enter it to reset your password.`;
+
+    await sendEmail(email, "Reset Password", message);
+
+    // save the otp in the database
+    const user = await User.findOne({ email });
+    if (!user) throw Error("User does not exist");
+
+    user.otp = otp;
+    const savedUser = await user.save();
+
+    if (!savedUser) throw Error("Something went wrong saving the user");
+
+    res.status(200).json({
+      success: true,
+      message: "OTP sent successfully",
     });
   } catch (err) {
     res.status(400).json({

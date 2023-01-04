@@ -35,6 +35,10 @@ const UserSchema = new mongoose.Schema({
     type: String,
     default: "user",
   },
+  otp: {
+    type: String,
+    default: "",
+  },
   isOnboarded: {
     type: Boolean,
     default: false,

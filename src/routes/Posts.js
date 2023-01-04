@@ -329,8 +329,14 @@ router.get("/search", verifyUser, async (req, res) => {
   try {
     const { query } = req.query;
 
+    const userId = await User.find({
+      name: { $regex: query, $options: "i" },
+    }).select("_id");
+
     const posts = await Post.find({
       $or: [
+        // search by user name from user ref
+        { user: { $in: userId } },
         { title: { $regex: query, $options: "i" } },
         { description: { $regex: query, $options: "i" } },
       ],
@@ -343,7 +349,7 @@ router.get("/search", verifyUser, async (req, res) => {
 
     res.status(200).json({
       success: true,
-      posts: postsWithUser,
+      posts,
     });
   } catch (err) {
     console.log(err);
